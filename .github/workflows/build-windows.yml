@@ -10,6 +10,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Attach the installer to the existing release with this tag (e.g. v1.5.0). Leave empty to only build it.'
+        required: false
+        default: ''
 
 # a release made on github.com can fire both events above; build it only once
 concurrency:
@@ -35,8 +40,18 @@ jobs:
         id: ver
         shell: bash
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then V="${GITHUB_REF_NAME#v}"; else V=$(node -p "require('./app/package.json').version"); fi
+          TAG="${{ github.event.inputs.tag }}"
+          if [[ -z "$TAG" && "$GITHUB_REF" == refs/tags/* ]]; then TAG="$GITHUB_REF_NAME"; fi
+          if [[ -n "$TAG" ]]; then
+            # accept tags like v1.5.0, v1.50, v2 or 1.5 and turn them into a full x.y.z version
+            V="${TAG#[vV]}"; V="${V%%-*}"
+            IFS=. read -r A B C _ <<< "$V"
+            V="$((10#${A:-0})).$((10#${B:-0})).$((10#${C:-0}))"
+          else
+            V=$(node -p "require('./app/package.json').version")
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Building version $V"
 
       - name: Install build tools
@@ -80,9 +95,9 @@ jobs:
           path: dist/BladeMail-Download-Manager-Setup-${{ steps.ver.outputs.version }}.exe
 
       - name: Attach installer to the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.ver.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          name: BladeMail Download Manager ${{ steps.ver.outputs.version }}
+          tag_name: ${{ steps.ver.outputs.tag }}
           files: dist/BladeMail-Download-Manager-Setup-${{ steps.ver.outputs.version }}.exe
           body_path: RELEASE_NOTES.md
