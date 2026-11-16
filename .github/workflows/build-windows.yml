@@ -1,5 +1,5 @@
 # Builds the Windows installer on GitHub's own Windows machine.
-#  - Push a version tag (for example v1.5.0) -> builds BladeMail-Download-Manager-Setup-1.5.0.exe
+#  - Publish a release on github.com with a new tag like v1.5.0, or push a version tag -> builds BladeMail-Download-Manager-Setup-1.5.0.exe
 #    and attaches it to a GitHub Release for that tag (created if it doesn't exist yet).
 #  - "Run workflow" on the Actions tab -> builds the installer as a downloadable artifact only (no release).
 name: Build Windows installer
@@ -7,7 +7,14 @@ name: Build Windows installer
 on:
   push:
     tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
+
+# a release made on github.com can fire both events above; build it only once
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -28,7 +35,7 @@ jobs:
         id: ver
         shell: bash
         run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V=$(node -p "require('./app/package.json').version"); fi
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then V="${GITHUB_REF_NAME#v}"; else V=$(node -p "require('./app/package.json').version"); fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Building version $V"
 
@@ -73,7 +80,7 @@ jobs:
           path: dist/BladeMail-Download-Manager-Setup-${{ steps.ver.outputs.version }}.exe
 
       - name: Attach installer to the release
-        if: github.ref_type == 'tag'
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: BladeMail Download Manager ${{ steps.ver.outputs.version }}
