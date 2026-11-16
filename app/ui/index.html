@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<title>BladeMail Download Manager</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><img src="../assets/icon.png" alt=""><span>BladeMail<small class="brand-sub">Download Manager</small></span></div>
+    <nav id="filters">
+      <button class="filter active" data-f="all">All <b id="c-all">0</b></button>
+      <button class="filter" data-f="active">Downloading <b id="c-active">0</b></button>
+      <button class="filter" data-f="paused">Paused <b id="c-paused">0</b></button>
+      <button class="filter" data-f="scheduled">Scheduled <b id="c-scheduled">0</b></button>
+      <button class="filter" data-f="completed">Completed <b id="c-completed">0</b></button>
+      <button class="filter" data-f="error">Failed <b id="c-error">0</b></button>
+    </nav>
+    <div class="speedbox">
+      <div class="label">Total speed</div>
+      <div id="total-speed" class="speed">0 KB/s</div>
+      <div id="total-mbps" class="mbps" title="Same speed in megabits per second, the unit internet providers advertise (100 Mb/s, 300 Mb/s…)">0 Mb/s</div>
+      <canvas id="graph" width="180" height="48"></canvas>
+      <div id="peak" class="peak"></div>
+      <div id="limit-badge" class="peak" style="color:var(--warn)"></div>
+    </div>
+    <button id="btn-history" class="histbtn">History &amp; stats</button>
+    <div class="ext-hint" id="ext-hint">Chrome extension listens on port <span id="port"></span></div>
+  </aside>
+
+  <main>
+    <header class="toolbar">
+      <button id="btn-add" class="primary">+ Add link</button>
+      <button id="btn-resume-all">Resume all</button>
+      <button id="btn-pause-all">Pause all</button>
+      <button id="btn-clear">Clear finished</button>
+      <div class="spacer"></div>
+      <input id="search" type="search" placeholder="Search downloads">
+      <button id="btn-ext" title="Connect BladeMail to your browsers">Browser extensions</button>
+      <button id="btn-settings" title="Settings">Settings</button>
+    </header>
+
+    <div class="list-head">
+      <span class="col-name">Name</span><span class="col-size">Size</span><span class="col-prog">Progress</span>
+      <span class="col-speed">Speed</span><span class="col-eta">Time left</span><span class="col-act"></span>
+    </div>
+    <div id="list" class="list"></div>
+    <div id="empty" class="empty">
+      <div class="big">No downloads yet</div>
+      <div>Click <b>+ Add link</b>, paste a link, or download anything in Chrome with the BladeMail extension installed.</div>
+    </div>
+  </main>
+</div>
+
+<dialog id="dlg-add">
+  <form method="dialog">
+    <h3>Add downloads</h3>
+    <label>Links <span class="muted">(one per line — paste as many as you like)</span>
+      <textarea id="add-urls" rows="5" placeholder="https://example.com/file.zip&#10;https://example.com/video.mp4"></textarea></label>
+    <label id="add-name-row">Save as (optional, single link only)<input id="add-name" type="text" placeholder="Leave empty to use the server's file name"></label>
+    <label class="check"><input id="add-audio" type="checkbox"> Audio only (save just the sound of a video)</label>
+    <label class="check"><input id="add-sched" type="checkbox"> Download at the scheduled time instead of now <span class="muted" id="add-sched-hint"></span></label>
+    <p class="muted" id="add-count"></p>
+    <div class="row-btns"><button value="cancel" formnovalidate>Cancel</button><button id="add-ok" class="primary" value="ok">Download</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-quality">
+  <form method="dialog">
+    <h3>Choose video quality</h3>
+    <p class="muted" id="q-name"></p>
+    <div id="q-list" class="qlist"></div>
+    <label class="check"><input id="q-remember" type="checkbox"> Always use this quality (you can change it in Settings → Files)</label>
+    <div class="row-btns"><button value="cancel" formnovalidate>Later</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-dup">
+  <form method="dialog">
+    <h3>You already have this file</h3>
+    <p id="dup-text" class="muted"></p>
+    <label class="check"><input id="dup-remember" type="checkbox"> Do this every time (change it in Settings → Files)</label>
+    <div class="row-btns">
+      <button type="button" data-a="skip">Skip</button>
+      <button type="button" data-a="replace">Replace it</button>
+      <button type="button" data-a="rename" class="primary">Download a renamed copy</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-hash">
+  <form method="dialog">
+    <h3>Check file</h3>
+    <p class="muted" id="h-name"></p>
+    <div id="h-status" class="muted">Calculating…</div>
+    <div class="hashes" id="h-list"></div>
+    <label>Paste the checksum from the website to compare (MD5, SHA-1 or SHA-256)
+      <input id="h-expected" type="text" placeholder="e.g. 3b1f…">
+    </label>
+    <div id="h-result" class="hres"></div>
+    <div class="row-btns"><button value="cancel" class="primary">Close</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-history" class="wide">
+  <form method="dialog">
+    <h3>Download history</h3>
+    <div class="stats" id="stats"></div>
+    <div class="hist-tools"><input id="h-search" type="search" placeholder="Search history"><button type="button" id="h-clear">Clear history</button></div>
+    <div class="hist" id="hist"></div>
+    <div class="row-btns"><button value="cancel" class="primary">Close</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-power">
+  <form method="dialog">
+    <h3 id="p-title">All downloads finished</h3>
+    <p id="p-text"></p>
+    <div class="row-btns"><button class="primary" value="cancel">Cancel</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-url">
+  <form method="dialog">
+    <h3>Change download link</h3>
+    <p class="muted">Use this when a link has expired. Copy a fresh link to the same file and paste it here; the download continues from where it stopped.</p>
+    <label>New link<input id="url-new" type="url" required></label>
+    <div class="row-btns"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Save and resume</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-settings" class="settings">
+  <form method="dialog">
+    <h3>Settings</h3>
+    <div class="tabs">
+      <nav class="tabnav">
+        <button type="button" data-tab="general" class="on">General</button>
+        <button type="button" data-tab="speed">Speed</button>
+        <button type="button" data-tab="files">Files</button>
+        <button type="button" data-tab="schedule">Schedule</button>
+        <button type="button" data-tab="browser">Browser &amp; links</button>
+        <button type="button" data-tab="finish">Notifications</button>
+      </nav>
+      <div class="tabbody">
+        <section data-tab="general">
+          <label>Theme
+            <select id="s-theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Same as Windows</option></select>
+          </label>
+          <label>Mini speed window (small, always on top)
+            <select id="s-mini"><option value="off">Off</option><option value="downloading">Show while downloading</option><option value="always">Always show</option></select>
+          </label>
+          <label class="check"><input id="s-startup" type="checkbox"> Start BladeMail when Windows starts</label>
+          <label class="check"><input id="s-min" type="checkbox"> Start hidden in the tray</label>
+          <label class="check"><input id="s-resume" type="checkbox"> Resume unfinished downloads when BladeMail starts</label>
+          <label class="check"><input id="s-tray" type="checkbox"> Closing the window keeps BladeMail running in the tray</label>
+          <label class="check"><input id="s-taskbar" type="checkbox"> While downloading, keep BladeMail on the taskbar so its icon shows the progress bar</label>
+          <label class="check"><input id="s-retry" type="checkbox"> Retry automatically when the connection drops (up to 5 times: after 15 s, 30 s, 1 min, 2 min, 5 min)</label>
+        </section>
+        <section data-tab="speed" hidden>
+          <label>Connections per file <span class="muted">(more = faster on most servers; 8–16 is a good range)</span>
+            <div class="rangerow"><input id="s-conn" type="range" min="1" max="32"><b id="s-conn-v"></b></div>
+          </label>
+          <label>Downloads at the same time
+            <div class="rangerow"><input id="s-max" type="range" min="1" max="10"><b id="s-max-v"></b></div>
+          </label>
+          <label class="check"><input id="s-limit-on" type="checkbox"> Limit total download speed (keeps browsing, games and calls smooth)</label>
+          <div class="limitrow"><input id="s-limit" type="number" min="1" step="1"> <span>Mb/s</span> <span class="muted" id="s-limit-mbs"></span></div>
+          <p class="muted">Tip: set it to about 70–80% of your internet plan, e.g. 80 Mb/s on a 100 Mb/s plan.</p>
+        </section>
+        <section data-tab="files" hidden>
+          <label>Download folder
+            <div class="dirrow"><input id="s-dir" type="text" readonly><button type="button" id="s-dir-pick">Change…</button></div>
+          </label>
+          <label class="check"><input id="s-sort" type="checkbox"> Sort into folders by type: Video, Music, Documents, Programs, Compressed, Pictures, Other</label>
+          <label>When a file is already downloaded
+            <select id="s-dup">
+              <option value="ask">Ask me</option>
+              <option value="rename">Download a renamed copy</option>
+              <option value="replace">Replace the old file</option>
+              <option value="skip">Skip it</option>
+            </select>
+          </label>
+          <label class="check"><input id="s-verify" type="checkbox"> Check files against the server's checksum when it provides one</label>
+          <label>Audio only: save as
+            <select id="s-audiofmt"><option value="original">Original quality (M4A when possible, otherwise MP3)</option><option value="mp3">Always MP3</option></select>
+          </label>
+          <div class="ffrow"><span id="ff-status" class="muted">Checking for ffmpeg…</span><button type="button" id="ff-get">Get ffmpeg</button></div>
+          <p class="muted">Audio only and turning streams into MP4 use the free ffmpeg tool. “Get ffmpeg” downloads it once (about 100–200 MB) into BladeMail's own folder.</p>
+          <label>Video quality for streams that offer several
+            <select id="s-quality">
+              <option value="ask">Ask me every time</option>
+              <option value="best">Always the best available</option>
+              <option value="2160">Up to 2160p (4K)</option>
+              <option value="1440">Up to 1440p</option>
+              <option value="1080">Up to 1080p</option>
+              <option value="720">Up to 720p</option>
+              <option value="480">Up to 480p</option>
+              <option value="360">Up to 360p</option>
+            </select>
+          </label>
+        </section>
+        <section data-tab="schedule" hidden>
+          <label class="check"><input id="s-sched" type="checkbox"> Download scheduled items only between these times</label>
+          <div class="timerow">From <input id="s-sched-start" type="time"> to <input id="s-sched-stop" type="time"></div>
+          <p class="muted">Add downloads to the schedule with the checkbox in “Add downloads”, or right-click a download → “Download at scheduled time”. Downloads still running when the time ends are paused and continue next time.</p>
+          <label>When all downloads finish
+            <select id="s-after">
+              <option value="nothing">Do nothing</option>
+              <option value="sleep">Put the PC to sleep</option>
+              <option value="shutdown">Shut down the PC</option>
+            </select>
+          </label>
+          <p class="muted">You get 60 seconds to cancel. This applies once, then switches back to “Do nothing”.</p>
+        </section>
+        <section data-tab="browser" hidden>
+          <label class="check"><input id="s-catch" type="checkbox"> Take over downloads started in the browser</label>
+          <label class="check"><input id="s-front" type="checkbox"> Bring BladeMail to the front when a download starts from the browser</label>
+          <label class="check"><input id="s-clip" type="checkbox"> When I copy a download link, offer to download it</label>
+        </section>
+        <section data-tab="finish" hidden>
+          <label class="check"><input id="s-popup" type="checkbox"> Show a “Download complete” box with Open and Open folder buttons</label>
+          <label class="check"><input id="s-sound" type="checkbox"> Play a sound when a download finishes</label>
+          <label class="check"><input id="s-notify" type="checkbox"> Use a Windows notification instead when the box is turned off</label>
+        </section>
+      </div>
+    </div>
+    <p class="muted" id="s-ver"></p>
+    <div class="row-btns"><button value="cancel" formnovalidate>Close</button><button class="primary" value="ok">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-ext" class="wide">
+  <form method="dialog">
+    <h3>Add BladeMail to your browsers</h3>
+    <p class="muted">Browsers only let you install extensions from outside their store yourself, so this takes one click per browser.
+      For each browser below: click <b>Open extensions page</b>, turn on <b>Developer mode</b>, click <b>Load unpacked</b>
+      and pick the folder that opens with <b>Show folder</b> (its path is also copied for you).</p>
+    <p class="note-warn">Updating from <b>FluxGet</b>? On each browser's extensions page, first click <b>Remove</b> on the old “FluxGet Connector” (its folder no longer exists), then load the new folder.</p>
+    <div id="ext-list"></div>
+    <p class="muted" id="ext-ff-note" hidden>Firefox: on the page that opens click <b>Load Temporary Add-on…</b> and choose <b>manifest.json</b> in the Firefox folder.
+      Firefox removes unsigned add-ons when it closes, so you will need to do this again after restarting Firefox
+      (Firefox Developer Edition or ESR can keep it permanently with <code>xpinstall.signatures.required</code> set to false).
+      Also open the add-on's settings and allow <b>Access your data for all websites</b>.</p>
+    <div class="row-btns"><button value="ok" class="primary">Done</button></div>
+  </form>
+</dialog>
+
+<div id="menu" class="menu" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

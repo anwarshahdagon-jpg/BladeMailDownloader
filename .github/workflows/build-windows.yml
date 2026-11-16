@@ -1,0 +1,81 @@
+# Builds the Windows installer on GitHub's own Windows machine.
+#  - Push a version tag (for example v1.5.0) -> builds BladeMail-Download-Manager-Setup-1.5.0.exe
+#    and attaches it to a GitHub Release for that tag (created if it doesn't exist yet).
+#  - "Run workflow" on the Actions tab -> builds the installer as a downloadable artifact only (no release).
+name: Build Windows installer
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Work out the version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V=$(node -p "require('./app/package.json').version"); fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Building version $V"
+
+      - name: Install build tools
+        working-directory: app
+        run: npm ci
+
+      - name: Set app version
+        working-directory: app
+        run: npm version ${{ steps.ver.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Package the app
+        working-directory: app
+        run: >
+          npx @electron/packager . BladeMail --platform=win32 --arch=x64 --icon=assets/icon.ico
+          --out=../dist --overwrite --asar --ignore="^/node_modules"
+          --win32metadata.ProductName="BladeMail Download Manager"
+          --win32metadata.FileDescription="BladeMail Download Manager"
+          --win32metadata.CompanyName=BladeMail
+
+      - name: Add browser extensions and README
+        shell: bash
+        run: |
+          cp -r extension extension-firefox dist/BladeMail-win32-x64/resources/
+          cp README.md dist/BladeMail-win32-x64/README.md
+
+      - name: Build the installer (NSIS)
+        shell: pwsh
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $nsis)) { choco install nsis -y --no-progress; $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe" }
+          Push-Location installer
+          & $nsis /V2 "/DVERSION=${{ steps.ver.outputs.version }}" blademail.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          Get-ChildItem dist\*.exe
+
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BladeMail-Download-Manager-Setup-${{ steps.ver.outputs.version }}
+          path: dist/BladeMail-Download-Manager-Setup-${{ steps.ver.outputs.version }}.exe
+
+      - name: Attach installer to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: BladeMail Download Manager ${{ steps.ver.outputs.version }}
+          files: dist/BladeMail-Download-Manager-Setup-${{ steps.ver.outputs.version }}.exe
+          body_path: RELEASE_NOTES.md
